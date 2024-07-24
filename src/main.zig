@@ -1,50 +1,72 @@
 const std = @import("std");
 
 pub fn main() !void {
-    // need allocator
+    // program-level logger
+    const zcat_log = std.log.scoped(.zcat);
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
     // argsAlloc to work on Windows
-    const args = try std.process.argsAlloc(allocator);
+    const args = std.process.argsAlloc(allocator) catch |e| {
+        // We know (frome reading std) that argsAlloc potential
+        // errors are mostly allocator oom errors and one is
+        // math overflow if args are unreasonably long (> usize.max)
+        // so we send user a message and exit
+        zcat_log.err("while processing arguments: {!}", .{e});
+        return;
+    };
     defer std.process.argsFree(allocator, args);
-
-    // instantiate buffered writer
-    // they say we want buffered, cause otherwise reads and writes are syscalls
-    const stdout = std.io.getStdOut();
-    var buffered_out = std.io.bufferedWriter(stdout.writer());
-    // and stderr
-    var stderr = std.io.getStdErr().writer();
-
-    // Implement only cat path/to/file for now
-    if (args.len != 2) {
-        try stderr.print(
-            \\Tiny zig cat
-            \\Invalid number of arguments!
-            \\Use: zcat path/to/file
-        , .{});
-    }
 
     // Open file
     const filename = args[1];
-    var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const path = try std.fs.realpathZ(filename, &path_buffer);
-
-    const file = try std.fs.openFileAbsolute(path, .{ .mode = .read_only });
+    const file = openFileZ(filename) catch |err| switch (err) {
+        // Here we try to gracefully handle most relevant
+        // errors and will just return rest
+        error.FileNotFound => {
+            zcat_log.err("File not found: {s}", .{filename});
+            return;
+        },
+        // TODO: move this to reader, as open a directory is not an error, but reading it is
+        error.IsDir => {
+            zcat_log.err("{s}: Is a directory", .{filename});
+            return;
+        },
+        error.AccessDenied => {
+            zcat_log.err("{s}: Access denied", .{filename});
+            return;
+        },
+        else => return err,
+    };
     defer file.close();
 
-    // Read
-    var buffered_in = std.io.bufferedReader(file.reader());
+    // Reader and Writer
+    // buffered, cause otherwise reads and writes are syscalls
+    var reader = std.io.bufferedReader(file.reader());
+    const stdout = std.io.getStdOut().writer();
+    var bw = std.io.bufferedWriter(stdout);
+    const writer = bw.writer();
+    // 4096 -> to have equal size buffer with bufferedWriter/Reader funcs
     var buffer: [4096]u8 = undefined;
+
     while (true) {
-        const num_read_bytes = try buffered_in.read(&buffer);
+        const num_read_bytes = try reader.read(&buffer);
         if (num_read_bytes == 0) {
             break;
         }
-        _ = try buffered_out.write(&buffer);
+        _ = try writer.write(&buffer);
     }
-    try buffered_out.flush();
+    try bw.flush();
+}
+
+/// Will bubble-up all errors from building a path and
+/// opening a file.
+pub fn openFileZ(filename: [*:0]const u8) !std.fs.File {
+    var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const path = try std.fs.realpathZ(filename, &path_buffer);
+
+    return std.fs.openFileAbsolute(path, .{ .mode = .read_only });
 }
 
 test "simple test" {
