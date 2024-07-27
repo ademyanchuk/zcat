@@ -37,6 +37,14 @@ pub fn main() !void {
             zcat_log.err("{s}: Access denied", .{filename});
             return;
         },
+        error.InvalidWtf8 => {
+            zcat_log.err("{s}: Invalid wtf8", .{filename});
+            return;
+        },
+        error.NetworkNotFound => {
+            zcat_log.err("{s}: Windows network path error", .{filename});
+            return;
+        },
         else => return err,
     };
     defer file.close();
