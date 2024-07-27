@@ -19,53 +19,63 @@ pub fn main() !void {
     };
     defer std.process.argsFree(allocator, args);
 
-    // Open file
-    const filename = args[1];
-    const file = openFileZ(filename) catch |err| switch (err) {
-        // Here we try to gracefully handle most relevant
-        // errors and will just return rest
-        error.FileNotFound => {
-            zcat_log.err("File not found: {s}", .{filename});
-            return;
-        },
-        // TODO: move this to reader, as open a directory is not an error, but reading it is
-        error.IsDir => {
-            zcat_log.err("{s}: Is a directory", .{filename});
-            return;
-        },
-        error.AccessDenied => {
-            zcat_log.err("{s}: Access denied", .{filename});
-            return;
-        },
-        error.InvalidWtf8 => {
-            zcat_log.err("{s}: Invalid wtf8", .{filename});
-            return;
-        },
-        error.NetworkNotFound => {
-            zcat_log.err("{s}: Windows network path error", .{filename});
-            return;
-        },
-        else => return err,
-    };
-    defer file.close();
-
-    // Reader and Writer
-    // buffered, cause otherwise reads and writes are syscalls
-    var reader = std.io.bufferedReader(file.reader());
+    // TODO: add reading from stdin!
+    if (args.len == 1) {
+        zcat_log.warn("Cat for stdin is not implemented yet", .{});
+        return;
+    }
+    // Instantiate writer (we use only stdout in the program)
     const stdout = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout);
     const writer = bw.writer();
-    // 4096 -> to have equal size buffer with bufferedWriter/Reader funcs
-    var buffer: [4096]u8 = undefined;
+    for (args[1..]) |filename| {
+        // Open file
+        const file = openFileZ(filename) catch |err| switch (err) {
+            // Here we try to gracefully handle most relevant
+            // errors and will just return rest
+            error.FileNotFound => {
+                zcat_log.err("File not found: {s}", .{filename});
+                return;
+            },
+            error.AccessDenied => {
+                zcat_log.err("{s}: Access denied", .{filename});
+                return;
+            },
+            error.InvalidWtf8 => {
+                zcat_log.err("{s}: Invalid wtf8", .{filename});
+                return;
+            },
+            error.NetworkNotFound => {
+                zcat_log.err("{s}: Windows network path error", .{filename});
+                return;
+            },
+            else => return err,
+        };
+        defer file.close();
 
-    while (true) {
-        const num_read_bytes = try reader.read(&buffer);
-        if (num_read_bytes == 0) {
-            break;
+        // Reader buffered, cause otherwise reads and writes are syscalls
+        var reader = std.io.bufferedReader(file.reader());
+        // 4096 -> to have equal size buffer with bufferedWriter/Reader funcs
+        var buffer: [4096]u8 = undefined;
+
+        while (true) {
+            const num_read_bytes = reader.read(&buffer) catch |err| switch (err) {
+                error.IsDir => {
+                    zcat_log.err("{s}: Is a directory", .{filename});
+                    return;
+                },
+                else => return err,
+            };
+            if (num_read_bytes == 0) {
+                break;
+            }
+            // don't handle errors here as we are using stdout
+            // and errors are mostly relevant to File
+            // might change later
+            _ = try writer.write(&buffer);
         }
-        _ = try writer.write(&buffer);
+        try bw.flush();
     }
-    try bw.flush();
 }
 
 /// Will bubble-up all errors from building a path and
@@ -77,6 +87,8 @@ pub fn openFileZ(filename: [*:0]const u8) !std.fs.File {
     return std.fs.openFileAbsolute(path, .{ .mode = .read_only });
 }
 
+// TODO: add tests which I am trying from comand line
+// so we have real tests
 test "simple test" {
     var list = std.ArrayList(i32).init(std.testing.allocator);
     defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
