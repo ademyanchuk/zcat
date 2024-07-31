@@ -88,4 +88,19 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    // integration test step
+    const integ_tests = b.addTest(.{
+        .root_source_file = b.path("./tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const integ_test_opts = b.addOptions();
+    integ_test_opts.addOptionPath("cli_exe_path", exe.getEmittedBin());
+    integ_tests.root_module.addOptions("build_options", integ_test_opts);
+
+    const run_integ_tests = b.addRunArtifact(integ_tests);
+
+    const integ_tests_step = b.step("app-test", "Run integration tests");
+    integ_tests_step.dependOn(&run_integ_tests.step);
 }
