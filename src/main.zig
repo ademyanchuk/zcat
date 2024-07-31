@@ -14,7 +14,7 @@ pub fn main() !void {
         // errors are mostly allocator oom errors and one is
         // math overflow if args are unreasonably long (> usize.max)
         // so we send user a message and exit
-        zcat_log.err("while processing arguments: {!}", .{e});
+        zcat_log.err("while processing arguments: {s}", .{@errorName(e)});
         return;
     };
     defer std.process.argsFree(allocator, args);
@@ -27,7 +27,7 @@ pub fn main() !void {
     // Instantiate writer (we use only stdout in the program)
     const stdout = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout);
-    const writer = bw.writer();
+
     for (args[1..]) |filename| {
         // Open file
         const file = openFileZ(filename) catch |err| switch (err) {
@@ -52,35 +52,40 @@ pub fn main() !void {
             else => return err,
         };
         defer file.close();
-
-        // Reader buffered, cause otherwise reads and writes are syscalls
-        var reader = std.io.bufferedReader(file.reader());
-        // 4096 -> to have equal size buffer with bufferedWriter/Reader funcs
-        var buffer: [4096]u8 = undefined;
-
-        while (true) {
-            const num_read_bytes = reader.read(&buffer) catch |err| switch (err) {
-                error.IsDir => {
-                    zcat_log.err("{s}: Is a directory", .{filename});
-                    return;
-                },
-                else => return err,
-            };
-            if (num_read_bytes == 0) {
-                break;
-            }
-            // don't handle errors here as we are using stdout
-            // and errors are mostly relevant to File
-            // might change later
-            _ = try writer.write(&buffer);
-        }
-        try bw.flush();
+        // read and write logic
+        readWriteLoop(file, &bw) catch |err| switch (err) {
+            error.IsDir => {
+                zcat_log.err("{s}: Is a directory", .{filename});
+                return;
+            },
+            else => return err,
+        };
     }
 }
 
+/// Buffered read and write loop, bw is buffered writer
+fn readWriteLoop(fin: std.fs.File, bw: anytype) !void {
+
+    // Reader buffered, cause otherwise reads and writes are syscalls
+    var reader = std.io.bufferedReader(fin.reader());
+    // 4096 -> to have equal size buffer with bufferedWriter/Reader funcs
+    var buffer: [4096]u8 = undefined;
+
+    while (true) {
+        const num_read_bytes = try reader.read(&buffer);
+        if (num_read_bytes == 0) {
+            break;
+        }
+        // don't handle errors here as we are using stdout
+        // and errors are mostly relevant to File
+        // might change later
+        _ = try bw.write(&buffer);
+    }
+    try bw.flush();
+}
 /// Will bubble-up all errors from building a path and
 /// opening a file.
-pub fn openFileZ(filename: [*:0]const u8) !std.fs.File {
+fn openFileZ(filename: [*:0]const u8) !std.fs.File {
     var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const path = try std.fs.realpathZ(filename, &path_buffer);
 
