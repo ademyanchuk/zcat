@@ -79,7 +79,7 @@ fn readWriteLoop(fin: std.fs.File, bw: anytype) !void {
         // don't handle errors here as we are using stdout
         // and errors are mostly relevant to File
         // might change later
-        _ = try bw.write(&buffer);
+        _ = try bw.write(buffer[0..num_read_bytes]);
     }
     try bw.flush();
 }
