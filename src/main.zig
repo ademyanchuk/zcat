@@ -19,16 +19,37 @@ pub fn main() !void {
     };
     defer std.process.argsFree(allocator, args);
 
-    // TODO: add reading from stdin!
-    if (args.len == 1) {
-        zcat_log.warn("Cat for stdin is not implemented yet", .{});
-        return;
-    }
     // Instantiate writer (we use only stdout in the program)
     const stdout = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout);
     var writer = bw.writer();
 
+    // stdin path
+    if (args.len == 1) {
+        const stdin = std.io.getStdIn();
+        var br = std.io.bufferedReader(stdin.reader());
+        var reader = br.reader();
+        // Safe bet is to allocate ArrayList, so we can read a lot
+        // from stdin until delimeter
+        var arr = try std.ArrayList(u8).initCapacity(allocator, 4096);
+        defer arr.deinit();
+
+        while (true) {
+            if (reader.streamUntilDelimiter(arr.writer(), '\n', null)) |_| {
+                // we write here
+                _ = try writer.write(arr.items);
+                try writer.print("\n", .{});
+                try bw.flush();
+            } else |err| switch (err) {
+                error.EndOfStream => break,
+                else => return err,
+            }
+            // reset arr for the next stream
+            arr.clearRetainingCapacity();
+        }
+        return;
+    }
+    // files path
     for (args[1..]) |filename| {
         // Open file
         const file = openFileZ(filename) catch |err| switch (err) {
