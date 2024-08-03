@@ -27,6 +27,7 @@ pub fn main() !void {
     // Instantiate writer (we use only stdout in the program)
     const stdout = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout);
+    var writer = bw.writer();
 
     for (args[1..]) |filename| {
         // Open file
@@ -53,7 +54,7 @@ pub fn main() !void {
         };
         defer file.close();
         // read and write logic
-        readWriteLoop(file, &bw) catch |err| switch (err) {
+        readWriteLoop(file, &bw, &writer) catch |err| switch (err) {
             error.IsDir => {
                 zcat_log.err("{s}: Is a directory", .{filename});
                 return;
@@ -64,7 +65,7 @@ pub fn main() !void {
 }
 
 /// Buffered read and write loop, bw is buffered writer
-fn readWriteLoop(fin: std.fs.File, bw: anytype) !void {
+fn readWriteLoop(fin: std.fs.File, bw: anytype, writer: anytype) !void {
 
     // Reader buffered, cause otherwise reads and writes are syscalls
     var reader = std.io.bufferedReader(fin.reader());
@@ -79,7 +80,7 @@ fn readWriteLoop(fin: std.fs.File, bw: anytype) !void {
         // don't handle errors here as we are using stdout
         // and errors are mostly relevant to File
         // might change later
-        _ = try bw.write(buffer[0..num_read_bytes]);
+        _ = try writer.write(buffer[0..num_read_bytes]);
     }
     try bw.flush();
 }
