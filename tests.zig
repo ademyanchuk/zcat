@@ -34,3 +34,23 @@ test "is dir error" {
     }
     try testing.expectEqualStrings("error(zcat): foo: Is a directory\n", exec_result.stderr);
 }
+test "one file ok" {
+    const allocator = testing.allocator;
+    const exe_path = build_opts.cli_exe_path;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const file_content = "Example of data with length < 4096 bytes";
+    try tmp.dir.writeFile(.{ .sub_path = "file1.txt", .data = file_content });
+
+    const exec_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ exe_path, "file1.txt" },
+        .cwd_dir = tmp.dir,
+    });
+    defer {
+        allocator.free(exec_result.stdout);
+        allocator.free(exec_result.stderr);
+    }
+    try testing.expectEqualStrings(file_content, exec_result.stdout);
+}
