@@ -54,3 +54,47 @@ test "one file ok" {
     }
     try testing.expectEqualStrings(file_content, exec_result.stdout);
 }
+test "one bigger file ok" {
+    const allocator = testing.allocator;
+    const exe_path = build_opts.cli_exe_path;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // 4096 is our app read and write buffers size
+    const file_content = "Example of data with length > 4096 bytes" ** 1000;
+    try tmp.dir.writeFile(.{ .sub_path = "file1.txt", .data = file_content });
+
+    const exec_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ exe_path, "file1.txt" },
+        .cwd_dir = tmp.dir,
+    });
+    defer {
+        allocator.free(exec_result.stdout);
+        allocator.free(exec_result.stderr);
+    }
+    try testing.expectEqualStrings(file_content, exec_result.stdout);
+}
+test "two big files ok" {
+    const allocator = testing.allocator;
+    const exe_path = build_opts.cli_exe_path;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // 4096 is our app read and write buffers size
+    const file1_content = "Example of data with length > 4096 bytes\n" ** 500;
+    try tmp.dir.writeFile(.{ .sub_path = "file1.txt", .data = file1_content });
+    const file2_content = "Some content for the second file\n" ** 500;
+    try tmp.dir.writeFile(.{ .sub_path = "file2.txt", .data = file2_content });
+
+    const exec_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ exe_path, "file1.txt", "file2.txt" },
+        .cwd_dir = tmp.dir,
+    });
+    defer {
+        allocator.free(exec_result.stdout);
+        allocator.free(exec_result.stderr);
+    }
+    try testing.expectEqualStrings(file1_content ++ file2_content, exec_result.stdout);
+}
